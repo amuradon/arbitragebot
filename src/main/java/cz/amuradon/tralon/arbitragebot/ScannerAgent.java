@@ -5,8 +5,10 @@ import java.math.RoundingMode;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
@@ -40,19 +42,37 @@ public class ScannerAgent {
     
 	@Startup
     public void run() {
-		scheduler.scheduleAtFixedRate(this::compare, 0, 20, TimeUnit.SECONDS);
+		Log.info("Scheduling...");
+		ScheduledFuture<?> task = scheduler.scheduleAtFixedRate(this::compare, 0, 20, TimeUnit.SECONDS);
+		
+		try {
+			task.get();
+		} catch (InterruptedException | ExecutionException e) {
+			throw new IllegalStateException("Something went wrong.", e);
+		}
 	}
 
 	private void compare() {
+		Log.info("Comparing...");
 		Map<String, BigDecimal> mexcData = mexcClient.ticker().stream().collect(Collectors.toMap(e -> e.symbol(), e -> e.price()));
 		Map<String, BigDecimal> binanceData = binanceClient.ticker().stream().collect(Collectors.toMap(e -> e.symbol(), e -> e.price()));
 		
 		for (Entry<String, BigDecimal> mexcEntry : mexcData.entrySet()) {
-			BigDecimal binancePrice = binanceData.get(mexcEntry.getKey());
-			BigDecimal diff = mexcEntry.getValue().subtract(binancePrice)
-					.divide(mexcEntry.getValue(), 4, RoundingMode.HALF_UP).multiply(new BigDecimal(100));
-			if (diff.abs().compareTo(BigDecimal.ONE) >= 1) {
-				Log.infof("Found opportunity '%s': %d", mexcEntry.getKey(), diff);
+			String symbol = mexcEntry.getKey();
+			BigDecimal binancePrice = binanceData.get(symbol);
+			BigDecimal mexcPrice = mexcEntry.getValue();
+			if (binancePrice != null) {
+				Log.debugf("Symbol '%s' - MEXC %s, Binance %s", symbol, mexcPrice, binancePrice);
+				if (binancePrice.compareTo(BigDecimal.ZERO) == 0 || mexcPrice.compareTo(BigDecimal.ZERO) == 0) {
+					Log.debugf("Symbol '%s' has no price - MEXC %s, Binance %s", symbol, mexcPrice, binancePrice);
+				} else {
+					BigDecimal diff = mexcPrice.subtract(binancePrice)
+							.divide(mexcPrice, 4, RoundingMode.HALF_UP).multiply(new BigDecimal(100));
+					Log.debugf("Symbol '%s' price diff %s", symbol, diff);
+					if (diff.abs().compareTo(new BigDecimal("0.5")) > 0) {
+						Log.infof("Found opportunity '%s': %s", symbol, diff);
+					}
+				}
 			}
 		}
 	}

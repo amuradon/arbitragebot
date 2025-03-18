@@ -7,7 +7,7 @@ import org.eclipse.microprofile.rest.client.inject.RegisterRestClient;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.Path;
 
-@RegisterRestClient(configKey = "mexc")
+@RegisterRestClient(configKey = "binance")
 public interface BinanceClient {
 
 	@Path("/ticker/price")
